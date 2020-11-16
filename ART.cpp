@@ -51,14 +51,25 @@ static inline unsigned ctz(uint16_t x) {
 #endif
 }
 
+void printkey(uint8_t *key) {
+   for(int i=0; i<8; i++) {
+      printf("%d ", key[i]);
+   }
+   printf("\n");
+   return;
+}
+
 Node** findChild(Node* n,uint8_t keyByte) {
    // Find the next child for the keyByte
    switch (n->type) {
       case NodeType4: {
+         // printf("node4\n");
          Node4* node=static_cast<Node4*>(n);
-         for (unsigned i=0;i<node->count;i++)
+         for (unsigned i=0;i<node->count;i++) {
+            //printf("i: %d\n", node->key[i]);
             if (node->key[i]==keyByte)
                return &node->child[i];
+         }
          return &nullNode;
       }
       case NodeType16: {
@@ -80,6 +91,7 @@ Node** findChild(Node* n,uint8_t keyByte) {
          return &(node->child[keyByte]);
       }
       case NodeTypeLinear: {
+         // printf("nodelinear\n");
          NodeLinear* node=static_cast<NodeLinear*>(n);
          int bucket = (int)(node->a*keyByte+node->b);
          if(bucket >= LINEAR_SIZE) {
@@ -208,11 +220,12 @@ void travel(Node* node, int depth, int nodes[5], int mode) {
    if (node==NULL) {
       return;
    } else if (isLeaf(node)) {
+      // printf("leaf value: %d\n", getLeafValue(node));
       return;
    }
 
+   // printf("traveling node type %d with depth %d\n", node->type, depth);
    if(mode == COUNT_NODES) nodes[node->type]++;
-   printf("traveling node type %d with depth %d\n", node->type, depth);
 
    switch (node->type) {
       case NodeType4:
@@ -235,38 +248,39 @@ void travel(Node* node, int depth, int nodes[5], int mode) {
 }
 
 void travelNode4(Node4* node, int depth, int nodes[5], int mode) {
+   // printf("node4 has count %d\n", node->count);
    for(int i=0; i < node->count; i++) {
       if(mode == CHILDREN_NODES && (isLeaf(node->child[i]) || node->child[i] != NULL)) nodes[node->type]++;
-      travel(node->child[i], depth+1, nodes, mode);
+      travel(node->child[i], depth+node->prefixLength, nodes, mode);
    }
 }
 
 void travelNode16(Node16* node, int depth, int nodes[5], int mode) {
    for(int i=0; i < 16; i++) {
       if(mode == CHILDREN_NODES && (isLeaf(node->child[i]) || node->child[i] != NULL)) nodes[node->type]++;
-      travel(node->child[i], depth+1, nodes, mode);
+      travel(node->child[i], depth+node->prefixLength, nodes, mode);
    }
 }
 
 void travelNode48(Node48* node, int depth, int nodes[5], int mode) {
    for(int i=0; i < NODE48_SIZE; i++) {
       if(mode == CHILDREN_NODES && (isLeaf(node->child[i]) || node->child[i] != NULL)) nodes[node->type]++;
-      travel(node->child[i], depth+1, nodes, mode);
+      travel(node->child[i], depth+node->prefixLength, nodes, mode);
    }
 }
 
 void travelNode256(Node256* node, int depth, int nodes[5], int mode) {
    for(int i=0; i < 256; i++) {
       if(mode == CHILDREN_NODES && (isLeaf(node->child[i]) || node->child[i] != NULL)) nodes[node->type]++;
-      travel(node->child[i], depth+1, nodes, mode);
+      travel(node->child[i], depth+node->prefixLength, nodes, mode);
    }
 }
 
 void travelNodeLinear(NodeLinear* node, int depth, int nodes[5], int mode) {
-   printf("linear node found\n");
+   // printf("linear node found\n");
    for(int i=0; i<LINEAR_SIZE; i++) {
       if(mode == CHILDREN_NODES && (isLeaf(node->child[i]) || node->child[i] != NULL)) nodes[node->type]++;
-      travel(node->child[i], depth+1, nodes, mode);
+      travel(node->child[i], depth+node->prefixLength, nodes, mode);
    }
 }
 
@@ -298,6 +312,7 @@ Node* lookup(Node* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned
 
    while (node!=NULL) {
       if (isLeaf(node)) {
+         // printf("leaf\n");
          if (!skippedPrefix&&depth==keyLength) // No check required
             return node;
 
@@ -313,6 +328,7 @@ Node* lookup(Node* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned
       }
 
       if (node->prefixLength) {
+         // printf("prefixLength\n");
          if (node->prefixLength<maxPrefixLength) {
             for (unsigned pos=0;pos<node->prefixLength;pos++)
                if (key[depth+pos]!=node->prefix[pos])
@@ -322,8 +338,11 @@ Node* lookup(Node* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned
          depth+=node->prefixLength;
       }
 
+      // printf("depth: %d\n", depth);
+
+      unsigned type = node->type;
       node=*findChild(node,key[depth]);
-      depth++;
+      if(type != 4) depth++;
    }
 
    return NULL;
@@ -369,7 +388,7 @@ void copyPrefix(Node* src,Node* dst) {
 
 void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t value,unsigned maxKeyLength) {
    // Insert the leaf value into the tree
-
+   printf("depth: %d\n", depth);
    if (node==NULL) {
       *nodeRef=makeLeaf(value);
       return;
@@ -377,6 +396,8 @@ void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t val
 
    if (isLeaf(node)) {
       // Replace leaf with Node4 and store both leaves in it
+      printf("insert: ");
+      printkey(key);
       uint8_t existingKey[maxKeyLength];
       loadKey(getLeafValue(node),existingKey);
       unsigned newPrefixLength=0;
@@ -388,6 +409,7 @@ void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t val
       memcpy(newNode->prefix,key+depth,min(newPrefixLength,maxPrefixLength));
       *nodeRef=newNode;
 
+      printf("newPrefixLength: %d\n", newPrefixLength);
       insertNode4(newNode,nodeRef,existingKey[depth+newPrefixLength],node);
       insertNode4(newNode,nodeRef,key[depth+newPrefixLength],makeLeaf(value));
       return;
@@ -739,14 +761,14 @@ void learn(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
          }
       }
    }
-   printf("bucket size: %d, y: %d\n", bucket_size, y);
-   printf("s_x: %d, s_y: %d\n", s_x, s_y);
-   printf("s_x2: %d, s_y2: %d\n", s_x2, s_y2);
+   // printf("bucket size: %d, y: %d\n", bucket_size, y);
+   // printf("s_x: %d, s_y: %d\n", s_x, s_y);
+   // printf("s_x2: %d, s_y2: %d\n", s_x2, s_y2);
 
    double a = (n*s_xy - s_x*s_y)*1.0/(n*s_x2 - s_x*s_x);
    double b = (s_y*s_x2 - s_x*s_xy)*1.0/(n*s_x2 - s_x*s_x);
    printf("y = %fx + %f\n", a, b);
-   printf("%p\n", node->child);
+   // printf("%p\n", node->child);
    printf("test a %f, b %f\n", node->a, node->b);
    node->a = a;
    node->b = b;
@@ -763,12 +785,22 @@ int predict(NodeLinear* node, uint8_t* key, unsigned depth) {
 }
 
 void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned depth) {
-   printf("%d\n", n);
-   if(n <= 8) {
-      for (uint64_t i=0; i<n; i++) {
+   for(int i=0; i<n; i++) {
+      // printf("value: %d\n", dataset[i]);
+   }
+   printf("n: %d\n", n);
+   if(n <= 8 && n > 1) {
+      // printf("inserting into nodes\n");
+      for (uint64_t i=1; i<n; i++) {
          uint8_t key[8];loadKey(dataset[i], key);
-         insert(node, nodeRef, key, depth, dataset[i], 8);
+         for(int j=0; j<8; j++) {
+            printf("%d ", key[j]);
+         }
+         printf("\n");
+         insert(*nodeRef, nodeRef, key, depth, dataset[i], 8);
       }
+      return;
+   } else if (n <= 1) {
       return;
    }
 
@@ -783,7 +815,7 @@ void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned d
    unsigned prefixMatch = 0;
    uint8_t prefix = 0;
    while(prefixMatch != 1 && newPrefixLength < maxPrefixLength) {
-      printf("depth: %d, prefix length: %d\n", depth, newPrefixLength);
+      // printf("depth: %d, prefix length: %d\n", depth, newPrefixLength);
       for(uint64_t i=0; i<n; i++) {
          uint8_t key[8];loadKey(dataset[i], key);
          if(i==0) prefix = key[depth+newPrefixLength];
@@ -816,25 +848,27 @@ void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned d
    }
 
    for(int i=0; i<LINEAR_SIZE; i++) {
-      printf("bucket %d has count %d\n", i, bucket_counts[i]);
+      // printf("bucket %d has count %d\n", i, bucket_counts[i]);
    }
 
    for(int i=0; i<LINEAR_SIZE; i++) {
       uint64_t *bucket_data = new uint64_t[bucket_counts[i]];
       int idx = 0;
       for(int j=0; j<n; j++) {
-         uint8_t key[8];loadKey(dataset[i], key);
+         uint8_t key[8];loadKey(dataset[j], key);
          if(i == predict(linearNode, key, depth)) {
-            bucket_data[idx] = j;
+            bucket_data[idx] = dataset[j];
             idx++;
          }
       }
       if(bucket_counts[i] > 8) {
          linearNode->child[i] = static_cast<Node*>(new NodeLinear());
+         insertBulk(linearNode->child[i], &linearNode->child[i], bucket_data, bucket_counts[i], depth);
       } else if (bucket_counts[i] != 0){
-         linearNode->child[i] = makeLeaf(dataset[bucket_data[0]]);
+         // printf("pre-inserting %d\n", bucket_data[0]);
+         linearNode->child[i] = makeLeaf(bucket_data[0]);
+         insertBulk(linearNode->child[i], &linearNode->child[i], bucket_data, bucket_counts[i], depth);
       }
-      insertBulk(linearNode->child[i], &linearNode->child[i], bucket_data, bucket_counts[i], depth+1);
    }
    return;
 }
@@ -863,7 +897,7 @@ int main(int argc,char** argv) {
    // Build tree
    double start = gettime();
    Node* tree=NULL;
-   tree = static_cast<Node*>(new NodeLinear());
+   if(n > 8) tree = static_cast<Node*>(new NodeLinear());
    printf("%d\n", isLeaf(tree));
    // for (uint64_t i=0;i<n;i++) {
    //    uint8_t key[8];loadKey(keys[i],key);
@@ -883,7 +917,10 @@ int main(int argc,char** argv) {
       for (uint64_t i=0;i<n;i++) {
          uint8_t key[8];loadKey(keys[i],key);
          Node* leaf=lookup(tree,key,8,0,8);
-         assert(isLeaf(leaf) && getLeafValue(leaf)==keys[i]);
+         // printf("%p\n", leaf);
+         assert(isLeaf(leaf));
+         // printf("%d %d\n", getLeafValue(leaf), keys[i]);
+         assert(getLeafValue(leaf)==keys[i]);
       }
    }
    printf("lookup,%ld,%f\n",n,(n*repeat/1000000.0)/(gettime()-start));

@@ -62,7 +62,7 @@ struct Node16 : Node {
    }
 };
 
-static const int8_t LINEAR_SIZE=32;
+static const int8_t LINEAR_SIZE=10;
 struct NodeLinear : Node {
    Node* child[LINEAR_SIZE];
    double a=0.0, b=0.0;
