@@ -388,7 +388,7 @@ void copyPrefix(Node* src,Node* dst) {
 
 void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t value,unsigned maxKeyLength) {
    // Insert the leaf value into the tree
-   printf("depth: %d\n", depth);
+   // printf("depth: %d\n", depth);
    if (node==NULL) {
       *nodeRef=makeLeaf(value);
       return;
@@ -396,8 +396,8 @@ void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t val
 
    if (isLeaf(node)) {
       // Replace leaf with Node4 and store both leaves in it
-      printf("insert: ");
-      printkey(key);
+      // printf("insert: ");
+      // printkey(key);
       uint8_t existingKey[maxKeyLength];
       loadKey(getLeafValue(node),existingKey);
       unsigned newPrefixLength=0;
@@ -409,7 +409,7 @@ void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t val
       memcpy(newNode->prefix,key+depth,min(newPrefixLength,maxPrefixLength));
       *nodeRef=newNode;
 
-      printf("newPrefixLength: %d\n", newPrefixLength);
+      // printf("newPrefixLength: %d\n", newPrefixLength);
       insertNode4(newNode,nodeRef,existingKey[depth+newPrefixLength],node);
       insertNode4(newNode,nodeRef,key[depth+newPrefixLength],makeLeaf(value));
       return;
@@ -714,7 +714,7 @@ static double gettime(void) {
   return ((double)now_tv.tv_sec) + ((double)now_tv.tv_usec)/1000000.0;
 }
 
-void learn(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
+void learn2(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
    int counts[256] = {0};
    for(int i=0; i<n; i++) {
       uint8_t key[8]; loadKey(dataset[i], key);
@@ -722,23 +722,78 @@ void learn(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
    }
 
    // for(int i=0; i<128; i++) {
-   //    printf("%d: %d\n", i, counts[i]);
+   //    if (counts[i]) printf("%d: %d\n", i, counts[i]);
    // }
+
+   int s_x=0, s_y=0, s_xy=0, s_x2=0, s_y2=0;
+   int bucket_size = n/LINEAR_SIZE + 1;
+
+   int current_x = 0;
+   while(counts[current_x] == 0) current_x++;
+
+   int current_y = 0;
+   int bucket_progress = 0;
+   int count_progress = 0;
+
+   for(int i=0; i<n; i++) {
+      s_x += current_x;
+      s_y += current_y;
+      s_x2 += current_x*current_x;
+      s_y2 += current_y*current_y;
+      s_xy += current_x*current_y;
+      //printf("predicting x: %d, y: %d\n", current_x, current_y);
+
+      count_progress++;
+      bucket_progress++;
+
+      if(count_progress == counts[current_x]) {
+         current_x++;
+         while(counts[current_x] == 0) current_x++;
+         count_progress = 0;
+      }
+
+      if(bucket_progress == bucket_size) {
+         current_y++;
+         bucket_progress = 0;
+      }
+   }
+
+
+   double a = (1.0*n*s_xy - 1.0*s_x*s_y)/(1.0*n*s_x2 - 1.0*s_x*s_x);
+   double b = (1.0*s_y*s_x2 - 1.0*s_x*s_xy)/(1.0*n*s_x2 - 1.0*s_x*s_x);
+   printf("y = %fx + %f\n", a, b);
+   // printf("%p\n", node->child);
+   node->a = a;
+   node->b = b;
+   return;
+}
+
+void learn(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
+   int counts[256] = {0};
+   for(int i=0; i<n; i++) {
+      uint8_t key[8]; loadKey(dataset[i], key);
+      counts[key[depth]]++;
+   }
+
+   for(int i=0; i<128; i++) {
+      printf("%d: %d\n", i, counts[i]);
+   }
 
    // veryyy simple linear regression code
    int s_x=0, s_y=0, s_xy=0, s_x2=0, s_y2=0;
-   int bucket_size = n/LINEAR_SIZE;
+   int bucket_size = n/LINEAR_SIZE + 1;
    if(bucket_size == 0) bucket_size = 1;
-   printf("bucket_size: %d\n", bucket_size);
+   // printf("bucket_size: %d\n", bucket_size);
    int y=0;
    for(int i=0; i<256; i++) {
       // printf("i: %d, counts[i]: %d\n", i, counts[i]);
       s_x += counts[i]*i;
-      s_x2 += counts[i]*counts[i]*i;
+      s_x2 += counts[i]*i*i;
 
       int i_count=counts[i];
       while(i_count > 0) {
          // printf("i_count: %d, y: %d, bucket_size: %d\n", i_count, y, bucket_size);
+         printf("value %i expected in bucket %i\n", i, y);
          if(i_count >= bucket_size) {
             s_y += bucket_size*y;
             s_y2 += bucket_size*y*y;
@@ -769,7 +824,6 @@ void learn(NodeLinear* node, uint64_t* dataset, int n, unsigned depth) {
    double b = (s_y*s_x2 - s_x*s_xy)*1.0/(n*s_x2 - s_x*s_x);
    printf("y = %fx + %f\n", a, b);
    // printf("%p\n", node->child);
-   printf("test a %f, b %f\n", node->a, node->b);
    node->a = a;
    node->b = b;
    return;
@@ -785,18 +839,18 @@ int predict(NodeLinear* node, uint8_t* key, unsigned depth) {
 }
 
 void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned depth) {
-   for(int i=0; i<n; i++) {
-      // printf("value: %d\n", dataset[i]);
-   }
-   printf("n: %d\n", n);
+   // for(int i=0; i<n; i++) {
+   //    printf("value: %d\n", dataset[i]);
+   // }
+   // printf("n: %d\n", n);
    if(n <= 8 && n > 1) {
       // printf("inserting into nodes\n");
       for (uint64_t i=1; i<n; i++) {
          uint8_t key[8];loadKey(dataset[i], key);
-         for(int j=0; j<8; j++) {
-            printf("%d ", key[j]);
-         }
-         printf("\n");
+         // for(int j=0; j<8; j++) {
+         //    printf("%d ", key[j]);
+         // }
+         // printf("\n");
          insert(*nodeRef, nodeRef, key, depth, dataset[i], 8);
       }
       return;
@@ -835,7 +889,7 @@ void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned d
    memcpy(linearNode->prefix,key+depth, min(newPrefixLength,maxPrefixLength));
    depth+=linearNode->prefixLength;
 
-   learn(linearNode, dataset, n, depth);
+   learn2(linearNode, dataset, n, depth);
 
    int bucket_counts[LINEAR_SIZE] = {0};
 
@@ -843,13 +897,13 @@ void insertBulk(Node* node, Node** nodeRef, uint64_t* dataset, int n, unsigned d
       uint8_t key[8]; loadKey(dataset[i], key);
       // printf("predicting...\n");
       int bucket = predict(linearNode, key, depth);
-      // printf("bucket prediction is %d\n", bucket);
+      //printf("bucket prediction for %d is %d\n", dataset[i], bucket);
       bucket_counts[bucket]++;
    }
 
-   for(int i=0; i<LINEAR_SIZE; i++) {
-      // printf("bucket %d has count %d\n", i, bucket_counts[i]);
-   }
+   // for(int i=0; i<LINEAR_SIZE; i++) {
+   //    printf("bucket %d has count %d\n", i, bucket_counts[i]);
+   // }
 
    for(int i=0; i<LINEAR_SIZE; i++) {
       uint64_t *bucket_data = new uint64_t[bucket_counts[i]];
@@ -898,13 +952,13 @@ int main(int argc,char** argv) {
    double start = gettime();
    Node* tree=NULL;
    if(n > 8) tree = static_cast<Node*>(new NodeLinear());
-   printf("%d\n", isLeaf(tree));
+   // printf("%d\n", isLeaf(tree));
    // for (uint64_t i=0;i<n;i++) {
    //    uint8_t key[8];loadKey(keys[i],key);
    //    insert(tree,&tree,key,0,keys[i],8);
    // }
    insertBulk(tree, &tree, keys, n, 0);
-   printf("is leaf: %d\n", isLeaf(tree));
+   // printf("is leaf: %d\n", isLeaf(tree));
    printf("insert,%ld,%f\n",n,(n/1000000.0)/(gettime()-start));
    profile(tree);
 
